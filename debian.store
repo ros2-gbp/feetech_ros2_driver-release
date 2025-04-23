@@ -1,1 +1,1 @@
-{"base": "f7fe4e9", "parent": "debian/rolling/feetech_ros2_driver", "previous": "ddb2b10", "trim": "", "trimbase": ""}
+{"base": "8355e3e05261", "parent": "debian/kilted/feetech_ros2_driver", "previous": "dc465cdf7abe", "trim": "", "trimbase": ""}
