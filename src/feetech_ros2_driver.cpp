@@ -1,8 +1,8 @@
 #include <fmt/ranges.h>
 
 #include <algorithm>
-#include <feetech_hardware_interface/common.hpp>
-#include <feetech_hardware_interface/communication_protocol.hpp>
+#include <feetech_driver/common.hpp>
+#include <feetech_driver/communication_protocol.hpp>
 #include <feetech_ros2_driver/feetech_ros2_driver.hpp>
 #include <hardware_interface/types/hardware_interface_return_values.hpp>
 #include <hardware_interface/types/hardware_interface_type_values.hpp>
@@ -14,8 +14,13 @@
 #include <vector>
 
 namespace feetech_ros2_driver {
+#if HARDWARE_INTERFACE_VERSION_GTE(4, 34, 0)
+CallbackReturn FeetechHardwareInterface::on_init(const hardware_interface::HardwareComponentInterfaceParams& params) {
+  if (hardware_interface::SystemInterface::on_init(params) != CallbackReturn::SUCCESS) {
+#else
 CallbackReturn FeetechHardwareInterface::on_init(const hardware_interface::HardwareInfo& info) {
   if (hardware_interface::SystemInterface::on_init(info) != CallbackReturn::SUCCESS) {
+#endif
     return CallbackReturn::ERROR;
   }
 
@@ -26,14 +31,14 @@ CallbackReturn FeetechHardwareInterface::on_init(const hardware_interface::Hardw
         "Make sure to have <param name=\"usb_port\">/dev/XXXX</param>");
     return CallbackReturn::ERROR;
   }
-  auto serial_port = std::make_unique<feetech_hardware_interface::SerialPort>(usb_port_it->second);
+  auto serial_port = std::make_unique<feetech_driver::SerialPort>(usb_port_it->second);
 
   if (const auto result = serial_port->configure(); !result) {
     spdlog::error("FeetechHardware::on_init -> {}", result.error());
     return CallbackReturn::ERROR;
   }
 
-  communication_protocol_ = std::make_unique<feetech_hardware_interface::CommunicationProtocol>(std::move(serial_port));
+  communication_protocol_ = std::make_unique<feetech_driver::CommunicationProtocol>(std::move(serial_port));
 
   joint_ids_.resize(info_.joints.size(), 0);
   joint_offsets_.resize(info_.joints.size(), 0);
@@ -61,12 +66,16 @@ CallbackReturn FeetechHardwareInterface::on_init(const hardware_interface::Hardw
         }
       }
     }
+    // Disable holding torque for joints that do not have command interfaces.
+    if (info_.joints[i].command_interfaces.empty()) {
+      communication_protocol_->set_torque(joint_ids_[i], false);
+    }
   }
 
   const auto joint_model_series = joint_ids_ | ranges::views::transform([&](const auto id) {
                                     return communication_protocol_->read_model_number(id)
-                                        .and_then(feetech_hardware_interface::get_model_name)
-                                        .and_then(feetech_hardware_interface::get_model_series);
+                                        .and_then(feetech_driver::get_model_name)
+                                        .and_then(feetech_driver::get_model_series);
                                   });
 
   if (std::ranges::any_of(joint_model_series, [](const auto& series) { return !series.has_value(); })) {
@@ -78,7 +87,7 @@ CallbackReturn FeetechHardwareInterface::on_init(const hardware_interface::Hardw
   const auto js = joint_model_series | ranges::views::transform([](const auto& series) { return series.value(); });
 
   // TODO: Support other series
-  if (ranges::any_of(js, [](const auto& series) { return series != feetech_hardware_interface::ModelSeries::kSts; })) {
+  if (ranges::any_of(js, [](const auto& series) { return series != feetech_driver::ModelSeries::kSts; })) {
     spdlog::error("FeetechHardware::on_init [Only STS series is supported]. Input (id, series): {}",
                   ranges::views::zip(joint_ids_, js));
     return CallbackReturn::ERROR;
@@ -103,7 +112,9 @@ std::vector<hardware_interface::CommandInterface> FeetechHardwareInterface::expo
   std::vector<hardware_interface::CommandInterface> command_interfaces;
   hw_positions_.resize(info_.joints.size(), std::numeric_limits<double>::quiet_NaN());
   for (uint i = 0; i < info_.joints.size(); i++) {
-    command_interfaces.emplace_back(info_.joints[i].name, hardware_interface::HW_IF_POSITION, &hw_positions_[i]);
+    if (!info_.joints[i].command_interfaces.empty()) {
+      command_interfaces.emplace_back(info_.joints[i].name, hardware_interface::HW_IF_POSITION, &hw_positions_[i]);
+    }
   }
 
   return command_interfaces;
@@ -120,30 +131,43 @@ hardware_interface::return_type FeetechHardwareInterface::read(const rclcpp::Tim
   }
   ranges::for_each(data | ranges::views::enumerate, [&](const auto& values) {
     const auto& [index, readings] = values;
-    state_hw_positions_[index] = feetech_hardware_interface::to_radians(
-        feetech_hardware_interface::from_sts(
-            feetech_hardware_interface::WordBytes{.low = readings[0], .high = readings[1]}) -
+    state_hw_positions_[index] = feetech_driver::to_radians(
+        feetech_driver::from_sts(feetech_driver::WordBytes{.low = readings[0], .high = readings[1]}) -
         joint_offsets_[index]);
-    state_hw_velocities_[index] = feetech_hardware_interface::to_radians(feetech_hardware_interface::from_sts(
-        feetech_hardware_interface::WordBytes{.low = readings[2], .high = readings[3]}));
+    state_hw_velocities_[index] = feetech_driver::to_radians(
+        feetech_driver::from_sts(feetech_driver::WordBytes{.low = readings[2], .high = readings[3]}));
   });
   return hardware_interface::return_type::OK;
 }
 
 hardware_interface::return_type FeetechHardwareInterface::write(const rclcpp::Time& /* time */,
                                                                 const rclcpp::Duration& /* period */) {
-  const auto positions = ranges::views::zip(hw_positions_, joint_offsets_) |
-                         ranges::views::transform([&](const auto tuple) {
-                           auto [position, offset] = tuple;
-                           return feetech_hardware_interface::from_radians(position) + offset;
-                         }) |
-                         ranges::to_vector;
-  const auto write_result = communication_protocol_->sync_write_position(
-      joint_ids_, positions, std::vector(joint_ids_.size(), 2400), std::vector(joint_ids_.size(), 50));
-  if (!write_result) {
-    spdlog::error("FeetechHardwareInterface::write -> {}", write_result.error());
-    return hardware_interface::return_type::ERROR;
+  // Create vectors only for joints that have command interfaces
+  std::vector<uint8_t> commanded_joint_ids;
+  std::vector<int> commanded_positions;
+  std::vector<int> commanded_speeds;
+  std::vector<int> commanded_accelerations;
+
+  for (uint i = 0; i < info_.joints.size(); i++) {
+    // Only include joints with command interfaces
+    if (!info_.joints[i].command_interfaces.empty()) {
+      commanded_joint_ids.push_back(joint_ids_[i]);
+      commanded_positions.push_back(feetech_driver::from_radians(hw_positions_[i]) + joint_offsets_[i]);
+      commanded_speeds.push_back(2400);       // Default speed
+      commanded_accelerations.push_back(50);  // Default acceleration
+    }
   }
+
+  // Only send commands if there are joints to command
+  if (!commanded_joint_ids.empty()) {
+    const auto write_result = communication_protocol_->sync_write_position(
+        commanded_joint_ids, commanded_positions, commanded_speeds, commanded_accelerations);
+    if (!write_result) {
+      spdlog::error("FeetechHardwareInterface::write -> {}", write_result.error());
+      return hardware_interface::return_type::ERROR;
+    }
+  }
+
   return hardware_interface::return_type::OK;
 }
 
@@ -152,6 +176,19 @@ CallbackReturn FeetechHardwareInterface::on_activate(const rclcpp_lifecycle::Sta
   read(rclcpp::Time{}, rclcpp::Duration::from_seconds(0));
   // Set the initial command to current joint positions
   hw_positions_ = state_hw_positions_;
+  return CallbackReturn::SUCCESS;
+}
+
+CallbackReturn FeetechHardwareInterface::on_deactivate(const rclcpp_lifecycle::State& /* previous_state */) {
+  // all joints torque off
+  const auto torque_disable_parameters =
+      std::vector(joint_ids_.size(), std::experimental::make_array(static_cast<uint8_t>(0)));
+  if (const auto result =
+          communication_protocol_->sync_write(joint_ids_, SMS_STS_TORQUE_ENABLE, torque_disable_parameters);
+      !result) {
+    spdlog::error("FeetechHardwareInterface::on_deactivate -> {}", result.error());
+    return CallbackReturn::ERROR;
+  }
   return CallbackReturn::SUCCESS;
 }
 

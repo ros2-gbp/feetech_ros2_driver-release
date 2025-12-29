@@ -1,14 +1,14 @@
+#include <fmt/ranges.h>
 #include <spdlog/spdlog.h>
 
-#include <feetech_hardware_interface/communication_protocol.hpp>
+#include <feetech_driver/communication_protocol.hpp>
 #include <iostream>
 #include <range/v3/all.hpp>
 #include <thread>
-#include <tl_expected/expected.hpp>
 #include <unordered_map>
 
 using namespace std::chrono_literals;
-using namespace feetech_hardware_interface;
+using namespace feetech_driver;
 
 std::string get_input(const std::string_view prompt) {
   std::string input;
@@ -169,7 +169,7 @@ int main(int argc, char** argv) {
     for (const auto& [key, _] : kExamples) {
       keys.push_back(key);
     }
-    spdlog::error("Invalid example name: {} - Available examples: {}", argv[1], keys);
+    spdlog::error("Invalid example name: {} - Available examples: {}", argv[1], fmt::join(keys, ", "));
     return EXIT_FAILURE;
   }
 
