@@ -1,3 +1,26 @@
+## feetech_ros2_driver (jazzy) - 0.2.1-1
+
+The packages in the `feetech_ros2_driver` repository were released into the `jazzy` distro by running `/usr/bin/bloom-release feetech_ros2_driver -t jazzy -r jazzy` on `Mon, 29 Dec 2025 21:58:59 -0000`
+
+The `feetech_ros2_driver` package was released.
+
+Version of package(s) in repository `feetech_ros2_driver`:
+
+- upstream repository: https://github.com/JafarAbdi/feetech_ros2_driver.git
+- release repository: https://github.com/ros2-gbp/feetech_ros2_driver-release.git
+- rosdistro version: `0.2.0-1`
+- old version: `0.2.0-1`
+- new version: `0.2.1-1`
+
+Versions of tools used:
+
+- bloom version: `0.13.0`
+- catkin_pkg version: `1.1.0`
+- rosdep version: `0.26.0`
+- rosdistro version: `1.0.1`
+- vcstools version: `0.1.42`
+
+
 ## feetech_ros2_driver (humble) - 0.2.1-1
 
 The packages in the `feetech_ros2_driver` repository were released into the `humble` distro by running `/usr/bin/bloom-release feetech_ros2_driver -t humble -r humble` on `Mon, 29 Dec 2025 21:56:26 -0000`
