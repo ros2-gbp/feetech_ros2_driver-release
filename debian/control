@@ -1,0 +1,12 @@
+Source: ros-rolling-feetech-ros2-driver
+Section: misc
+Priority: optional
+Maintainer: Jafar Uruc <jafar.uruc@gmail.com>
+Build-Depends: debhelper (>= 9.0.0), libfmt-dev, librange-v3-dev, libserial-dev, libspdlog-dev, pkg-config, ros-rolling-ament-cmake, ros-rolling-hardware-interface, ros-rolling-pluginlib, ros-rolling-rclcpp, ros-rolling-tl-expected, ros-rolling-ros-workspace
+Homepage: https://github.com/JafarAbdi/feetech_ros2_driver
+Standards-Version: 3.9.2
+
+Package: ros-rolling-feetech-ros2-driver
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, libfmt-dev, librange-v3-dev, libserial-dev, libspdlog-dev, pkg-config, ros-rolling-hardware-interface, ros-rolling-pluginlib, ros-rolling-rclcpp, ros-rolling-tl-expected, ros-rolling-ros-workspace
+Description: ros2_control hardware interface for Feetech Servos
