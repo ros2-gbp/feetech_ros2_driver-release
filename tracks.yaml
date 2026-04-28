@@ -104,5 +104,4 @@ tracks:
     ros_distro: rolling
     vcs_type: git
     vcs_uri: https://github.com/JafarAbdi/feetech_ros2_driver.git
-    version: 0.2.1
-    version_saved: :{auto}
+    version: :{auto}
